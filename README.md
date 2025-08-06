@@ -1,6 +1,4 @@
-Of course. Here is the provided content transformed into a professional and well-structured GitHub README file.
 
------
 
 # 📊 Github Poly Data
 
