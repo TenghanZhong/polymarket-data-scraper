@@ -1,162 +1,104 @@
+📊 Github Poly Data
+This repository collects a tool-chain for gathering prediction-market and related financial data from multiple sources.
+It consists of a variety of self-contained Python scripts that monitor, download and record data from Polymarket, Deribit, .
+The goal is to create structured tables (in PostgreSQL) that can be used for quantitative analysis of crypto markets, sporting events and option pricing.
 
-
-# 📊 Github Poly Data
-
-This repository contains a **tool-chain for gathering prediction-market and related financial data** from multiple sources. It consists of a variety of self-contained Python scripts that monitor, download, and record data from **Polymarket, Deribit.
-
-The goal is to create structured tables (in PostgreSQL or local CSV files) that can be used for quantitative analysis of crypto markets, sporting events, and option pricing.
-
------
-
-## ✨ Features
-
-  * **Multi-Source Aggregation**: Pulls data from Polymarket, Deribit, Kalshi, ESPN, and SportsDataIO.
-  * **Automated Tracking**: Scripts automatically discover and monitor active markets for crypto, MLB, and NBA events.
-  * **Flexible Storage**: Saves structured data to a PostgreSQL database or falls back to local CSV files.
-  * **Data Enrichment**: Combines data from multiple sources, like enriching Polymarket odds with real-time scores from ESPN.
-  * **Modular Design**: Each data source and task is handled by a dedicated, self-contained module.
-  * **Resilient**: Implements automatic retries and connection pooling for robust data collection.
-
------
-
-## 📁 Directory Layout
-
-\<details open\>
-\<summary\>Click to view repository structure\</summary\>
-
-```text
+📁 Directory layout
 Github_poly_data/
-├── README.md            ← You are here
-├── Crypto/              ← Scripts for Polymarket crypto markets
-├── Deribit_Option/      ← Daily Deribit BTC option chain loader
-├── MLB/                 ← Automatic tracking of MLB prediction markets
-├── NBA/                 ← Automatic tracking of NBA prediction markets
-├── poly_deribit/        ← Link Polymarket and Deribit data
-├── utilities/           ← Shared database/API utilities
-└── ... (logs, tests, requirements.txt, etc.)
-```
+├── README.md                   ← original readme with high-level event list
+├── Crypto/                     ← scripts for Polymarket crypto markets
+├── Deribit_Option/             ← daily Deribit BTC option chain loader
+├── MLB/                        ← automatic tracking of MLB prediction markets
+├── NBA/                        ← automatic tracking of NBA prediction markets
+├── poly_deribit/               ← link Polymarket and Deribit data
+├── utilities/                  ← shared database/API utilities
+└── ... (logs, tests, etc.)
 
-\</details\>
+1. ⚡ Crypto – hourly / weekly / monthly markets
+hourly_crypto.py – Launches a process every hour (in ET) to monitor the “Bitcoin/Ethereum up or down” yes/no markets for that hour. It generates the current slug (e.g. bitcoin-up-or-down-august-6-2pm-et), creates a table in the hourly_crypto schema and logs yes/no bid/ask quotes every minute.
 
------
+monthly_crypto.py – Monitors monthly price-target markets such as “what price will bitcoin hit in month”; it creates threads for the current, previous and next month for each asset (btc, xrp, eth).
 
-## 🛠️ Modules Overview
+weekly_crypto.py – Tracks weekly price markets (e.g. “bitcoin price on July-14”); it keeps a cache of active ETH events and refreshes the list hourly, then launches threads to monitor the previous, current and next weekly events.
 
-This project is organized into several modules, each responsible for a specific data collection task.
+poly_interval_loader.py – Discovers all active scalar interval markets on Polymarket that mention btc/eth. Each qualifying event spawns its own process that creates a table in the polymarket_interval_only schema and writes minute-level snapshots for all price brackets (low/high bounds, yes/no bid/ask).
 
-### 1\. ⚡ Crypto Markets
+test_hourly_crypto.py – Small test harness that prints the slugs and expiry calculation for the hourly tracker.
 
-Scripts for monitoring hourly, weekly, and monthly crypto prediction markets on Polymarket.
+These scripts rely on the shared database helper in utilities/db_utils.py to obtain a connection from a pool and to create per-event tables on the fly. They connect to the Polymarket Gamma API for event metadata and prices, disable SSL verification and employ automatic retries. Log files are written under Crypto/logs/.
 
-  * `hourly_crypto.py`: Monitors hourly "up or down" markets for BTC/ETH. It logs bid/ask quotes every minute.
-  * `monthly_crypto.py`: Tracks monthly price-target markets for assets like BTC, XRP, and ETH.
-  * `weekly_crypto.py`: Follows weekly price-target markets for ETH and other assets.
-  * `poly_interval_loader.py`: Discovers all active scalar interval markets (e.g., "BTC price between $X and $Y") and logs minute-level snapshots for all price brackets.
+2. 📈 Deribit Option Chain
+daily_deribit.py – Uses ccxt to fetch the entire BTC option chain from Deribit. It parses various expiry formats (e.g. 4JUL25, 250624), filters options expiring within the next six months, and returns three pandas DataFrames: main contracts, synthetic contracts and skipped rows. It can be run stand-alone to produce CSVs for further analysis.
 
-### 2\. 📈 Deribit Option Chain
+See also utilities/deribit/ for reusable functions to fetch BTC and ETH option chains and write them to CSV with additional greeks (delta, gamma, vega, theta).
 
-Fetches and processes the entire BTC option chain from the Deribit exchange.
+3. ⚾ MLB – baseball market monitoring
+MLB_Auto.py – Scans active Polymarket events tagged with mlb, parses the market question to extract the two competing teams, and launches a separate process per game. Each process writes a table in the MLB schema recording the time-stamp, the teams, best bid/ask for both sides, and current inning and score (added in v14). It sleeps until just before first pitch and stops when the market closes.
 
-  * `daily_deribit.py`: Uses `ccxt` to fetch the BTC option chain, filters for options expiring within six months, and outputs the data to pandas DataFrames or CSV files.
-  * `utilities/deribit/`: Contains reusable functions for fetching BTC/ETH option chains and calculating greeks (delta, gamma, vega, theta).
+test_MLB.py, test_keyword.py, test_ongoing.py – Test harnesses that validate the event filtering logic and verify that active games are correctly recognised as “upcoming” or “in progress”. They query the live API once and check that required price fields (bestBid, bestAsk) are present.
 
-### 3\. ⚾ MLB Markets
+4. 🏀 NBA – basketball market monitoring
+NBA_Auto.py – Automatically discovers NBA series markets (e.g. nba-bos-lal-2025-06-08), extracts the two teams from the question, and monitors markets for each game. It writes to the NBA schema and records period (quarter), score and a boolean is_live flag, in addition to bid/ask quotes.
 
-Automatically tracks and records data for Major League Baseball prediction markets on Polymarket.
+nba_combined_data.py – Combines Polymarket data with ESPN’s scoreboard API to enrich markets with official scores. It fetches today’s NBA events, calls ESPN to get real-time scores, matches teams via slugs or mascot names, and saves the merged snapshots to Postgres or local CSV.
 
-  * `MLB_Auto.py`: Scans for active MLB markets, extracts the competing teams, and records time-stamped bid/ask quotes along with the current inning and score for each game.
+nba_sportsdataio.py – Example script for using the SportsDataIO replay API. It polls play-by-play and live odds for a specific game (configured via GAME_ID and API_KEY) every 15 seconds, aligns them on the time axis, forward-fills odds and writes the combined dataset to a CSV file.
 
-### 4\. 🏀 NBA Markets
+Nba_test.py – Simple test wrapper for the auto-tracker.
 
-Automatically discovers and monitors NBA game and series markets.
+5. 🔗 Poly–Deribit link
+daily_poly_deribit_loader.py – Discovers active Polymarket crypto events whose title includes bitcoin/btc and a dollar price (e.g. “Will Bitcoin be above $70 000 on June 30”). For each such event it infers a strike and direction, matches it against the Deribit option chain to find the closest call/put option with the same expiry, and then continuously logs both Polymarket yes/no prices and Deribit option quotes into a dynamic table under the deribit_polymarket schema.
 
-  * `NBA_Auto.py`: Finds NBA markets, extracts teams, and logs quotes, period (quarter), score, and a live status flag.
-  * `nba_combined_data.py`: Enriches Polymarket data by fetching real-time scores from ESPN's API and merging the datasets.
-  * `nba_sportsdataio.py`: Uses the SportsDataIO API to poll play-by-play data and live odds for a specific game, aligning and saving the combined data.
+deribit_poly.py – Command-line tool that performs the above linking for a single Polymarket event; it requires the slug as an argument.
 
-### 5\. 🔗 Poly-Deribit Link
+deribit_poly_interval.py – Collects all price intervals of a given Polymarket event into a common table polymarket_only.pm_intervals, recording low/high bounds and yes/no prices every minute.
 
-Connects Polymarket crypto events to corresponding options on Deribit.
+6. 🛠️ Shared utilities
+db_utils.py – Initializes a threaded PostgreSQL connection pool. It defines helper functions to get and release connections, determine a schema name from a slug, create tables if they do not exist and insert market data. Database credentials (dbname, user, password, host, port) are configured at the top of this file; adjust them before running scripts.
 
-  * `daily_poly_deribit_loader.py`: Finds Polymarket crypto price-target events, infers the strike price, matches it to the closest option on Deribit with the same expiry, and logs prices from both sources side-by-side.
+deribit/ – Scripts to download BTC or ETH option chains and daily loaders to persist them to CSV, including calculation of greeks.
 
-### 6\. 🛠️ Shared Utilities
+kalshi/ – Provides a client for the Kalshi trading API (kalshi_api.py) with support for RSA key signing, and a downloader (kalshi_download_free.py) that fetches market data and writes to Postgres using db_utils. A sample kalshi_private_key.txt is included as a placeholder; insert your own RSA private key for authenticated calls.
 
-Core modules providing shared functionality used across the tool-chain.
+polymarket/ – Functions to monitor a single Polymarket event (monitor_event.py), download events via Apify (polymarket_download.py), or use only the public Gamma API (polymarket_download_free.py). These modules are used by the higher-level scripts but can also be run stand-alone.
 
-  * `db_utils.py`: Manages a threaded PostgreSQL connection pool and includes helpers for dynamic table creation and data insertion. **Database credentials must be configured here.**
-  * `kalshi/`: A client for the Kalshi trading API, including RSA key signing and a data downloader.
-  * `polymarket/`: Low-level functions for interacting with the Polymarket Gamma API and Apify.
+7. 📦 Requirements
+Scripts require Python 3.9+ and the following packages:
+pip install requests ccxt psycopg2 pandas numpy pytz zoneinfo cryptography apify-client
+Notes
+• Polymarket data is publicly accessible via the Gamma API (no key required).
+• Database – edit DB_CONFIG in utilities/db_utils.py.
+• SportsDataIO – set your API key in nba_sportsdataio.py (API_KEY) and pick the desired GAME_ID.
+• Kalshi – provide an RSA private key (kalshi_private_key.txt) and key ID.
+• Apify – set APIFY_API_TOKEN in polymarket_download.py or via environment variables.
 
------
+8. ▶️ Running the scripts
 
-## 🚀 Getting Started
+# 1 – Create a virtual env & install deps
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt   # or install packages listed above
 
-Follow these steps to set up the environment and run the data collection scripts.
+# 2 – Configure PostgreSQL (utilities/db_utils.py)
 
-### Prerequisites
-
-  * Python 3.9+
-  * PostgreSQL Database
-
-### Installation & Configuration
-
-1.  **Clone the repository:**
-
-    ```bash
-    git clone https://github.com/your-username/Github_poly_data.git
-    cd Github_poly_data
-    ```
-
-2.  **Create and activate a virtual environment:**
-
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    # On Windows, use: venv\Scripts\activate
-    ```
-
-3.  **Install the required packages:**
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-    Alternatively, you can install them manually:
-
-    ```bash
-    pip install requests ccxt psycopg2 pandas numpy pytz zoneinfo cryptography apify-client
-    ```
-
-4.  **Configure services:**
-
-      * **Database**: Open `utilities/db_utils.py` and edit the `DB_CONFIG` dictionary with your PostgreSQL credentials (host, port, dbname, user, password).
-      * **SportsDataIO**: Set your `API_KEY` and the desired `GAME_ID` in `nba_sportsdataio.py`.
-      * **Kalshi**: Place your RSA private key in `utilities/kalshi/kalshi_private_key.txt` and set your key ID for authenticated calls.
-      * **Apify**: Set your `APIFY_API_TOKEN` in `utilities/polymarket/polymarket_download.py` or as an environment variable.
-
-### Usage
-
-Navigate into a module's directory and run the desired Python script.
-
-```bash
-# Example: Track hourly crypto markets
-cd Crypto/
+# 3 – Run what you need
+## hourly bitcoin/ethereum markets
+cd Crypto
 python3 hourly_crypto.py
 
-# Example: Fetch the daily Deribit BTC option chain
-cd ../Deribit_Option/
+## Deribit BTC option chain
+cd ../Deribit_Option
 python3 daily_deribit.py
 
-# Example: Monitor MLB markets continuously
-cd ../MLB/
+## MLB markets
+cd ../MLB
 python3 MLB_Auto.py
-```
 
-Logs are written to a `logs/` sub-folder within each module. Data is stored in your configured PostgreSQL database, with tables created dynamically under schemas like `hourly_crypto`, `MLB`, `NBA`, etc. If the database connection fails, scripts will fall back to writing data to a `local_backup/` directory.
+## Single Polymarket/Deribit link (replace slug)
+cd ../poly_deribit
+python3 deribit_poly.py bitcoin-price-on-july-31
+Logs are saved under each module’s logs/ directory. Tables are created in PostgreSQL under schemas such as hourly_crypto, MLB, NBA, deribit_polymarket, etc. If DB connectivity fails, data is backed up to CSV files in local_backup/.
 
------
 
-## 🤝 Contributing
-
-This project is primarily for internal data collection and research. However, contributions are welcome\! If you'd like to add a new data source or improve the tool-chain, please open an issue to discuss your idea or submit a pull request.
+🤝 Contributing
+This project is primarily for internal data collection and research.
