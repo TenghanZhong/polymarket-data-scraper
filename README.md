@@ -2,7 +2,7 @@
 
 # 📊 Github Poly Data
 
-This repository contains a **tool-chain for gathering prediction-market and related financial data** from multiple sources. It consists of a variety of self-contained Python scripts that monitor, download, and record data from **Polymarket, Deribit, Kalshi, ESPN**, and **SportsDataIO**.
+This repository contains a **tool-chain for gathering prediction-market and related financial data** from multiple sources. It consists of a variety of self-contained Python scripts that monitor, download, and record data from **Polymarket, Deribit.
 
 The goal is to create structured tables (in PostgreSQL or local CSV files) that can be used for quantitative analysis of crypto markets, sporting events, and option pricing.
 
